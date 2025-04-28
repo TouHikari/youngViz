@@ -1,54 +1,70 @@
 import numpy as np
 
-# 定义物理常数或默认参数 (可选)
-DEFAULT_LAMBDA_NM = 550e-9  # 默认波长 (m)
-DEFAULT_D_MM = 0.1e-3     # 默认缝间距 (m)
-DEFAULT_CAP_D_M = 1.0      # 默认屏缝距离 (m)
-SCREEN_WIDTH_MM = 20e-3   # 模拟屏幕的总宽度 (m)
+# --- 物理常数与默认参数 ---
+# (单位尽量使用国际标准单位 MKS)
+DEFAULT_LAMBDA_M = 550e-9   # 默认波长 (m),  550 nm
+DEFAULT_D_M = 0.1e-3      # 默认缝间距 (m), 0.1 mm
+DEFAULT_CAP_D_M = 1.0     # 默认屏缝距离 (m), 1.0 m
+SCREEN_WIDTH_M = 20e-3    # 模拟屏幕的总宽度 (m), 20 mm
 NUM_PIXELS = 1000         # 屏幕分辨率 (像素点数)
 
-# 计算屏幕坐标 (只需计算一次)
-x_coords_m = np.linspace(-SCREEN_WIDTH_MM / 2, SCREEN_WIDTH_MM / 2, NUM_PIXELS)
-x_coords_mm = x_coords_m * 1000 # 转换为毫米用于绘图
+# --- 预计算屏幕坐标 ---
+# 屏幕中心为 x=0，范围从 -SCREEN_WIDTH_M / 2 到 +SCREEN_WIDTH_M / 2
+x_coords_m = np.linspace(-SCREEN_WIDTH_M / 2, SCREEN_WIDTH_M / 2, NUM_PIXELS)
+# 转换为毫米，方便后续绘图使用
+x_coords_mm = x_coords_m * 1000
 
-def calculate_intensity(lambda_nm, d_mm, D_m):
+def calculate_intensity(lambda_m: float, d_m: float, cap_d_m: float) -> tuple[np.ndarray, np.ndarray]:
     """
-    根据给定的参数计算杨氏双缝干涉的光强分布。
+    计算杨氏双缝干涉在屏幕上的相对光强分布。
+
+    基于公式: I/I_max = cos^2(pi * d * x / (lambda * D))
 
     Args:
-        lambda_nm (float): 光的波长 (单位: nm)。
-        d_mm (float): 双缝间距 (单位: mm)。
-        D_m (float): 屏缝距离 (单位: m)。
+        lambda_m (float): 光的波长 (单位: m)。
+        d_m (float): 双缝间距 (单位: m)。
+        cap_d_m (float): 屏缝距离 (单位: m)。
 
     Returns:
-        tuple: 包含屏幕位置坐标 (mm) 和对应的相对光强数组 (0到1)。
-               (x_coords_mm, intensity)
+        tuple[np.ndarray, np.ndarray]:
+            - x_coords_mm (np.ndarray): 屏幕位置坐标数组 (单位: mm)。
+            - intensity (np.ndarray): 对应的相对光强数组 (范围 0 到 1)。
     """
-    # 单位转换
-    lambda_ = lambda_nm * 1e-9  # nm to m
-    d = d_mm * 1e-3       # mm to m
-    D = D_m               # m
+    # 检查输入参数有效性，防止除零等问题
+    if lambda_m <= 0 or cap_d_m <= 0 or d_m <= 0:
+        print(f"警告: 输入参数无效 (lambda={lambda_m}, d={d_m}, D={cap_d_m})。返回均匀光强。")
+        # 返回一个均匀分布作为错误情况下的默认值
+        return x_coords_mm, np.ones_like(x_coords_m) * 0.5
 
-    # 避免除零错误 (也检查 d)
-    if lambda_ == 0 or D == 0 or d == 0:
-        # print("警告: 计算中遇到除零或输入参数为零。") # 可选的警告信息
-        return x_coords_mm, np.ones_like(x_coords_m) * 0.5 # 例如返回均匀光强
+    # 计算相位差因子: phi_factor = (pi * d * x) / (lambda * D)
+    # 注意：这里直接使用预计算的 x_coords_m (单位: m)
+    phi_factor = (np.pi * d_m * x_coords_m) / (lambda_m * cap_d_m)
 
-    # 计算相位差因子 (π * d * x) / (λ * D)
-    # 使用全局的 x_coords_m
-    phi_factor = (np.pi * d * x_coords_m) / (lambda_ * D)
-
-    # 计算相对光强 I/Imax = cos^2(phi_factor)
+    # 计算相对光强 I/I_max = cos^2(phi_factor)
     intensity = np.cos(phi_factor)**2
 
     return x_coords_mm, intensity
 
-# 可以添加一个函数计算理论条纹间距
-def calculate_fringe_spacing(lambda_nm, d_mm, D_m):
-    """计算理论条纹间距 (mm)"""
-    if d_mm == 0: return float('inf') # 避免除零
-    lambda_ = lambda_nm * 1e-9
-    d = d_mm * 1e-3
-    D = D_m
-    delta_x_m = (lambda_ * D) / d
-    return delta_x_m * 1000 # m to mm
+def calculate_fringe_spacing(lambda_m: float, d_m: float, cap_d_m: float) -> float:
+    """
+    计算理论上的干涉条纹间距。
+
+    基于公式: Δx = (lambda * D) / d
+
+    Args:
+        lambda_m (float): 光的波长 (单位: m)。
+        d_m (float): 双缝间距 (单位: m)。
+        cap_d_m (float): 屏缝距离 (单位: m)。
+
+    Returns:
+        float: 理论条纹间距 (单位: mm)。如果无法计算（如 d_m 为 0），返回无穷大。
+    """
+    if d_m <= 0:
+        print("警告: 缝间距 d <= 0，无法计算条纹间距。")
+        return float('inf') # 无法形成干涉，间距视为无穷大
+
+    # 计算条纹间距 (单位: m)
+    delta_x_m = (lambda_m * cap_d_m) / d_m
+
+    # 转换为毫米返回
+    return delta_x_m * 1000
